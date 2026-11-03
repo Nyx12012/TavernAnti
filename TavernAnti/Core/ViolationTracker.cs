@@ -11,9 +11,17 @@ namespace TavernAnti.Core;
 
 public class ViolationTracker(AntiCheatConfigFile config) : IService
 {
+    public readonly struct Event(DateTime time, int weight, ViolationType type, string detail)
+    {
+        public DateTime Time { get; } = time;
+        public int Weight { get; } = weight;
+        public ViolationType Type { get; } = type;
+        public string Detail { get; } = detail;
+    }
+
     private class Record
     {
-        public readonly List<(DateTime Time, int Weight)> Events = new();
+        public readonly List<Event> Events = new();
     }
 
     private readonly ConcurrentDictionary<string, Record> _records = new(StringComparer.OrdinalIgnoreCase);
@@ -48,7 +56,7 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
                 var windowStart = now - TimeSpan.FromSeconds(cfg.ViolationWindowSeconds);
                 record.Events.RemoveAll(e => e.Time < windowStart);
                 before = record.Events.Sum(e => e.Weight);
-                record.Events.Add((now, weight));
+                record.Events.Add(new Event(now, weight, type, detail));
                 score = before + weight;
             }
 
@@ -66,19 +74,27 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
                 TavernAntiLogger.Warn($"{who} reached {reached.ToString().ToLowerInvariant()} (score {score}); enforcement stops at {level.ToString().ToLowerInvariant()}");
 
             var reason = $"suspicious activity score {score}";
+            var last = $"{type}: {detail}";
             switch (step)
             {
                 case Enforcement.Ban:
-                    EnforcementActions.Ban(connection, login, reason, TavernServices.GetService<TrustedUserStore>(), joining);
+                    EnforcementActions.Ban(connection, login, reason, TavernServices.GetService<TrustedUserStore>(), joining, last);
                     lock (record) record.Events.Clear();
                     break;
                 case Enforcement.Kick:
-                    if (joining) TavernAntiLogger.Warn($"{who} refused at the door ({reason})");
-                    else EnforcementActions.Kick(connection, who, reason);
+                    if (joining)
+                    {
+                        TavernAntiLogger.Warn($"{who} refused at the door ({reason})");
+                        DiscordWebhook.Post($"Refused {who} at the door ({reason}). Last: {last}");
+                    }
+                    else EnforcementActions.Kick(connection, who, reason, last);
                     break;
                 case Enforcement.Alert:
                     if (before < cfg.AlertThreshold)
+                    {
                         TavernAntiLogger.Warn($"ALERT: {who} crossed the alert threshold ({reason}, last: {type})");
+                        DiscordWebhook.Post($"ALERT: {who} crossed the alert threshold ({reason}). Last: {last}");
+                    }
                     break;
             }
 
@@ -94,15 +110,23 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
     private static bool AppliesToStaff(ViolationType type) =>
         type is ViolationType.KeyIdMismatch or ViolationType.KeyMissing or ViolationType.KeyMismatch;
 
-    public int ScoreOf(string login)
+    public int ScoreOf(string login) => EventsOf(login).Sum(e => e.Weight);
+
+    public List<Event> EventsOf(string login)
     {
-        if (login == null || !_records.TryGetValue(login, out var record)) return 0;
+        if (login == null || !_records.TryGetValue(login, out var record)) return new List<Event>();
         var windowStart = DateTime.UtcNow - TimeSpan.FromSeconds(config.LastRead.ViolationWindowSeconds);
-        lock (record) return record.Events.Where(e => e.Time >= windowStart).Sum(e => e.Weight);
+        lock (record) return record.Events.Where(e => e.Time >= windowStart).ToList();
     }
 
-    public void Clear(string login)
+    public List<KeyValuePair<string, int>> Scores()
     {
-        if (login != null) _records.TryRemove(login, out _);
+        return _records.Keys
+            .Select(login => new KeyValuePair<string, int>(login, ScoreOf(login)))
+            .Where(p => p.Value > 0)
+            .OrderByDescending(p => p.Value)
+            .ToList();
     }
+
+    public bool Clear(string login) => login != null && _records.TryRemove(login, out _);
 }

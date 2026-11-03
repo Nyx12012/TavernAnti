@@ -36,6 +36,11 @@ public class TavernAntiPlugin : MelonPlugin
             TavernAntiLogger.Msg("Harmony patches applied");
 
             MovementMonitor.Init();
+            if (_config != null)
+            {
+                Alta.Console.CommandService.CommandCollection.Collect(Assembly.GetExecutingAssembly());
+                TavernAntiLogger.Msg("Console commands registered: tavernanti status, settings, set, enforcement, weight, reload, webhook, player, clear, keys");
+            }
             Patches.InteractionGuardPatch.Init();
             if (_config != null)
             {
@@ -44,6 +49,7 @@ public class TavernAntiPlugin : MelonPlugin
                 var cfg = _config.LastRead;
                 TavernAntiLogger.Msg($"enforcement={cfg.Enforcement.ToString().ToLowerInvariant()}; staff roles exempt: {string.Join(", ", Staff.Roles)}");
                 TavernAntiLogger.Msg($"dev_guard={(DevGuard.Standalone ? "standalone DevGuard" : cfg.DevGuard.ToString().ToLowerInvariant())}, join_guard={cfg.JoinGuard.ToString().ToLowerInvariant()}, key_guard={cfg.KeyGuard.ToString().ToLowerInvariant()}");
+                TavernAntiLogger.Msg($"discord webhook: {(string.IsNullOrEmpty(cfg.DiscordWebhookUrl?.Trim()) ? "not set" : DiscordWebhook.Problem(cfg.DiscordWebhookUrl) ?? (cfg.DiscordWebhookEnabled ? "on, posts to " + DiscordWebhook.Host(cfg.DiscordWebhookUrl) : "set but switched off"))}");
             }
         }
         catch (Exception e)

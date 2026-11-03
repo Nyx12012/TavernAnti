@@ -17,7 +17,7 @@ internal static class DevGuardHooks
 {
     internal static bool On => DevGuard.Active(TavernServices.GetService<AntiCheatConfigFile>()?.LastRead);
 
-    internal static string RoleOf(IPlayer player) => Staff.RoleOf(Logins.Of(player));
+    internal static string RoleOf(IPlayer player) => Staff.RoleOf(player);
 
     internal static void Report(IPlayer player, ViolationType type, string detail) =>
         TavernServices.GetService<ViolationTracker>()?.Report(player, type, detail);

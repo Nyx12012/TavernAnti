@@ -156,7 +156,7 @@ internal static class JoinGate
         }
 
         Logins.Remember(connection, login);
-        if (role != null) TavernAntiLogger.Msg($"{login} joined as {role}: exempt from every check");
+        if (role != null) TavernAntiLogger.Msg(KeyGuard.Gating ? $"{login} joined as {role}: staff rights wait for their key proof" : $"{login} joined as {role}: exempt from every check");
 
         if (devGuard && user.MemberStatus != PlayerSubscriberStatus.None)
         {

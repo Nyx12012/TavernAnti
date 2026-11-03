@@ -7,6 +7,7 @@ namespace TavernAnti.Config;
 
 public class AntiCheatConfig
 {
+    [JsonProperty("movement_checks")] public bool MovementChecks { get; set; } = true;
     [JsonProperty("max_player_speed_mps")] public float MaxPlayerSpeedMps { get; set; } = 12f;
     [JsonProperty("max_teleport_distance")] public float MaxTeleportDistance { get; set; } = 15f;
     [JsonProperty("speed_violation_consecutive_ticks")] public int SpeedViolationConsecutiveTicks { get; set; } = 3;
@@ -17,6 +18,7 @@ public class AntiCheatConfig
     [JsonProperty("fly_min_ascend_speed_mps")] public float FlyMinAscendSpeedMps { get; set; } = 0.75f;
     [JsonProperty("fly_violation_consecutive_ticks")] public int FlyViolationConsecutiveTicks { get; set; } = 5;
 
+    [JsonProperty("interact_checks")] public bool InteractChecks { get; set; } = true;
     [JsonProperty("max_interacts_per_second")] public int MaxInteractsPerSecond { get; set; } = 8;
 
     [JsonProperty("grab_checks")] public bool GrabChecks { get; set; } = true;
@@ -59,6 +61,9 @@ public class AntiCheatConfig
     [JsonProperty("ban_threshold")] public int BanThreshold { get; set; } = 30;
 
     [JsonProperty("enforcement")] public string EnforcementName { get; set; } = "log";
+
+    [JsonProperty("discord_webhook_url")] public string DiscordWebhookUrl { get; set; } = "";
+    [JsonProperty("discord_webhook_enabled")] public bool DiscordWebhookEnabled { get; set; } = true;
 
     [JsonIgnore]
     public Enforcement Enforcement

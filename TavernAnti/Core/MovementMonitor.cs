@@ -127,7 +127,7 @@ public static class MovementMonitor
                 return;
             }
 
-            if (Staff.IsStaff(player))
+            if (!cfg.MovementChecks || Staff.IsStaff(player))
             {
                 Baseline(s, pos, now);
                 return;

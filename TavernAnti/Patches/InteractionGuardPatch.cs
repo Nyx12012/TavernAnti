@@ -31,7 +31,7 @@ public static class InteractionGuardPatch
 
         var config = TavernServices.GetService<AntiCheatConfigFile>()?.LastRead;
         var tracker = TavernServices.GetService<ViolationTracker>();
-        if (config == null || tracker == null) return true;
+        if (config == null || tracker == null || !config.InteractChecks) return true;
 
         if (IsOverRate(player.ConnectionToRemotePlayer, config.MaxInteractsPerSecond))
         {

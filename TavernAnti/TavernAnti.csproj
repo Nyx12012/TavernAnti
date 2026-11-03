@@ -217,10 +217,12 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Commands\TavernAntiCommands.cs" />
     <Compile Include="Config\AntiCheatConfig.cs" />
     <Compile Include="Config\AntiCheatConfigFile.cs" />
     <Compile Include="Config\TrustedUserStore.cs" />
     <Compile Include="Core\DevGuard.cs" />
+    <Compile Include="Core\Discord.cs" />
     <Compile Include="Core\Enforcement.cs" />
     <Compile Include="Core\EnforcementActions.cs" />
     <Compile Include="Core\GrabGuard.cs" />

@@ -88,20 +88,29 @@ internal static class Staff
         return null;
     }
 
-    internal static bool IsStaff(string login) => RoleOf(login) != null;
+    internal static bool IsStaff(string login) => !KeyGuard.Gating && RoleOf(login) != null;
 
-    internal static bool IsStaff(IPlayer player)
+    internal static bool IsStaff(IPlayer player) => RoleOf(player) != null;
+
+    internal static string RoleOf(IPlayer player)
     {
         var connection = player?.ConnectionToRemotePlayer;
-        if (connection == null) return false;
+        if (connection == null) return null;
+        var role = CachedRole(connection);
+        if (role == null || KeyGuard.Vouches(connection)) return role;
+        KeyGuard.Withheld(connection, role);
+        return null;
+    }
 
+    private static string CachedRole(Connection connection)
+    {
         var now = DateTime.UtcNow;
         lock (Cache)
-            if (Cache.TryGetValue(connection, out var hit) && hit.Until > now) return hit.Role != null;
+            if (Cache.TryGetValue(connection, out var hit) && hit.Until > now) return hit.Role;
 
         var role = RoleOf(Logins.Of(connection));
         lock (Cache) Cache[connection] = (role, now + CacheFor);
-        return role != null;
+        return role;
     }
 
     internal static void Forget(Connection connection)

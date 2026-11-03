@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Alta.Networking;
@@ -41,7 +42,12 @@ internal static class KeyGuard
 
     private static readonly Stopwatch Clock = Stopwatch.StartNew();
     private static readonly Dictionary<Connection, Peer> Peers = new();
+    private static readonly object BindingsLock = new();
     private static Dictionary<string, string> _bindings;
+    private static readonly HashSet<Connection> ProvenSet = new();
+    private static readonly HashSet<Connection> WithheldLogged = new();
+    private static volatile bool _gating;
+    private static string _gatingNote;
     private static RsaPublic _serverKey;
     private static ISocket _socket;
     private static bool _stepAdded, _proofOff, _started, _keyLoading;
@@ -55,10 +61,19 @@ internal static class KeyGuard
 
     internal static void Tick(AntiCheatConfig config, ViolationTracker tracker)
     {
-        if (config == null || !config.KeyGuard) return;
+        if (config == null || !config.KeyGuard)
+        {
+            SetGating(false, _gatingNote == null ? null : "KeyGuard off: staff rights no longer wait for a key");
+            return;
+        }
         if (!_started) Start();
         if (!_stepAdded) AddStep();
-        if (_proofOff) return;
+        if (_proofOff)
+        {
+            SetGating(false, $"KeyGuard: staff rights do not wait for a key ({_proofOffWhy})");
+            return;
+        }
+        SetGating(true, "KeyGuard: staff rights wait for each staff login's key proof");
         if (_serverKey == null && !_keyLoading) LoadServerKey();
         if (_socket == null && Now >= _nextAttach)
         {
@@ -66,6 +81,29 @@ internal static class KeyGuard
             Attach();
         }
         Deadlines(config, tracker);
+    }
+
+    internal static bool Gating => _gating;
+
+    internal static bool Vouches(Connection c)
+    {
+        if (!_gating) return true;
+        lock (ProvenSet) return c != null && ProvenSet.Contains(c);
+    }
+
+    internal static void Withheld(Connection c, string role)
+    {
+        lock (WithheldLogged)
+            if (!WithheldLogged.Add(c)) return;
+        TavernAntiLogger.Msg($"KeyGuard: {Logins.Of(c)} is {role}; their staff rights wait for the key proof");
+    }
+
+    private static void SetGating(bool on, string note)
+    {
+        _gating = on;
+        if (note == _gatingNote) return;
+        _gatingNote = note;
+        if (note != null) TavernAntiLogger.Msg(note);
     }
 
     private static void Start()
@@ -204,7 +242,14 @@ internal static class KeyGuard
         if (c == null || Peers.ContainsKey(c)) return;
         Peers[c] = new Peer();
         c.SetHandler((MessageType)KeyProto.WireType, Receive);
-        c.Disconnected += conn => Peers.Remove(conn);
+        c.Disconnected += Forget;
+    }
+
+    private static void Forget(Connection c)
+    {
+        Peers.Remove(c);
+        lock (ProvenSet) ProvenSet.Remove(c);
+        lock (WithheldLogged) WithheldLogged.Remove(c);
     }
 
     private static void Receive(Connection c, NetStream stream)
@@ -308,7 +353,7 @@ internal static class KeyGuard
 
         var bindingKey = login.ToLowerInvariant();
         string bound;
-        lock (_bindings) _bindings.TryGetValue(bindingKey, out bound);
+        lock (BindingsLock) _bindings.TryGetValue(bindingKey, out bound);
         if (bound != null && bound != key.Fingerprint)
         {
             KeyWire.Send(c, KeyProto.Reject, new KeyFields().Add("why", "wrong-key"));
@@ -317,12 +362,15 @@ internal static class KeyGuard
         }
         if (bound == null)
         {
-            lock (_bindings) _bindings[bindingKey] = key.Fingerprint;
+            lock (BindingsLock) _bindings[bindingKey] = key.Fingerprint;
             SaveBindings();
             TavernAntiLogger.Msg($"KeyGuard: {login} bound to key {key.Short} (first proof)");
         }
         else TavernAntiLogger.Msg($"KeyGuard: {login} proved key {key.Short}");
         p.Proven = true;
+        lock (ProvenSet) ProvenSet.Add(c);
+        var role = Staff.RoleOf(login);
+        if (role != null && _gating) TavernAntiLogger.Msg($"KeyGuard: {login} proved their key; {role} rights on");
         KeyWire.Send(c, KeyProto.Welcome, new KeyFields().Add("fp", key.Fingerprint));
     }
 
@@ -352,44 +400,158 @@ internal static class KeyGuard
         var tracker = TavernServices.GetService<ViolationTracker>();
         if (player == null || tracker == null) return;
         if (tracker.Report(player, type, detail) && !c.IsDisposed)
-            EnforcementActions.Kick(c, Logins.NameOf(player), "TavernAnti could not confirm your identity key");
+            EnforcementActions.Kick(c, Logins.NameOf(player), "could not confirm your identity key", $"{type}: {detail}");
     }
 
     private static string Short(string fp) => string.IsNullOrEmpty(fp) || fp.Length <= 8 ? fp ?? "?" : fp.Substring(0, 8);
 
-    private static void LoadBindings()
+    private const string BindingsUnreadable = "keyguard_bindings.json could not be read";
+
+    private static bool BindingsBroken => _proofOff && _proofOffWhy == BindingsUnreadable;
+
+    private static Dictionary<string, string> ReadBindings(out string error)
     {
-        _bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        error = null;
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            if (!File.Exists(BindingsPath)) return;
+            if (!File.Exists(BindingsPath)) return map;
             var read = JsonConvert.DeserializeObject<Dictionary<string, string>>(File.ReadAllText(BindingsPath));
             if (read != null)
-                foreach (var kv in read) _bindings[kv.Key.ToLowerInvariant()] = kv.Value;
-            TavernAntiLogger.Msg($"KeyGuard: {_bindings.Count} key binding(s) loaded");
+                foreach (var kv in read)
+                    if (!string.IsNullOrEmpty(kv.Key) && !string.IsNullOrEmpty(kv.Value)) map[kv.Key.ToLowerInvariant()] = kv.Value;
+            return map;
         }
         catch (Exception e)
         {
-            TavernAntiLogger.Error($"KeyGuard: {BindingsPath} could not be read ({e.Message}); it is left alone");
-            _proofOff = true;
-            _proofOffWhy = "keyguard_bindings.json could not be read";
+            error = e.Message;
+            return null;
         }
     }
 
-    private static void SaveBindings()
+    private static void LoadBindings()
+    {
+        var map = ReadBindings(out var error);
+        if (map == null)
+        {
+            TavernAntiLogger.Error($"KeyGuard: {BindingsPath} could not be read ({error}); it is left alone");
+            lock (BindingsLock) _bindings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            _proofOff = true;
+            _proofOffWhy = BindingsUnreadable;
+            return;
+        }
+        lock (BindingsLock) _bindings = map;
+        TavernAntiLogger.Msg($"KeyGuard: {map.Count} key binding(s) loaded");
+    }
+
+    internal static string ReloadBindings()
+    {
+        var map = ReadBindings(out var error);
+        if (map == null) return $"keyguard_bindings.json could not be read ({error}); the bindings in memory are kept";
+        lock (BindingsLock) _bindings = map;
+        if (BindingsBroken)
+        {
+            _proofOff = false;
+            _proofOffWhy = null;
+            TavernAntiLogger.Msg("KeyGuard: keyguard_bindings.json reads again, so the key proof is back on");
+        }
+        return $"{map.Count} key binding(s) loaded";
+    }
+
+    private static bool SaveBindings()
     {
         try
         {
             string json;
-            lock (_bindings) json = JsonConvert.SerializeObject(_bindings, Formatting.Indented);
+            lock (BindingsLock) json = JsonConvert.SerializeObject(_bindings, Formatting.Indented);
             var tmp = BindingsPath + ".tmp";
             File.WriteAllText(tmp, json);
             if (File.Exists(BindingsPath)) File.Replace(tmp, BindingsPath, null);
             else File.Move(tmp, BindingsPath);
+            return true;
         }
         catch (Exception e)
         {
             TavernAntiLogger.Error($"KeyGuard: saving the key bindings failed: {e.Message}");
+            return false;
         }
+    }
+
+    internal static string Describe()
+    {
+        var config = TavernServices.GetService<AntiCheatConfigFile>()?.LastRead;
+        var sb = new StringBuilder();
+        if (config?.KeyGuard != true) sb.AppendLine("KeyGuard is off (key_guard: false)");
+        else if (_proofOff) sb.AppendLine($"KeyGuard: id check only, the key proof is off ({_proofOffWhy})");
+        else sb.AppendLine($"KeyGuard: id check plus key proof{(_serverKey != null ? $", server key {_serverKey.Short}" : "")}; staff rights wait for the key");
+
+        Dictionary<string, string> map;
+        string error = null;
+        lock (BindingsLock) map = _bindings != null && !BindingsBroken ? new Dictionary<string, string>(_bindings) : null;
+        map ??= ReadBindings(out error);
+        if (map == null) sb.AppendLine($"keyguard_bindings.json could not be read ({error})");
+        else if (map.Count == 0) sb.AppendLine("No key bindings yet");
+        else
+        {
+            sb.AppendLine($"{map.Count} key binding(s):");
+            foreach (var kv in map.OrderBy(k => k.Key, StringComparer.Ordinal)) sb.AppendLine($"  {kv.Key} -> {Short(kv.Value)}");
+        }
+
+        if (config?.KeyGuard == true)
+            foreach (var player in Player.AllPlayers)
+            {
+                var c = player?.ConnectionToRemotePlayer;
+                if (c != null) sb.AppendLine($"  online: {Logins.NameOf(player)}: {StateOf(c)}");
+            }
+        return sb.ToString().TrimEnd();
+    }
+
+    internal static string StateOf(Connection c)
+    {
+        var config = TavernServices.GetService<AntiCheatConfigFile>()?.LastRead;
+        if (config?.KeyGuard != true) return "KeyGuard off";
+        if (_proofOff) return "no key proof on this server";
+        if (c == null || !Peers.TryGetValue(c, out var p)) return "not seen yet";
+        if (p.Proven) return "key proven";
+        if (p.Reported) return "no valid key proof (reported)";
+        if (p.SpawnedAt < 0) return "waiting to spawn";
+        return $"waiting for the key proof ({Math.Max(0, config.KeyGuardProofSeconds - (Now - p.SpawnedAt)):F0} s left)";
+    }
+
+    internal static string Unbind(string login, bool rejoin)
+    {
+        var key = login.Trim().ToLowerInvariant();
+        bool loaded;
+        lock (BindingsLock) loaded = _bindings != null && !BindingsBroken;
+        if (!loaded)
+        {
+            var reload = ReloadBindings();
+            lock (BindingsLock) loaded = _bindings != null && !BindingsBroken;
+            if (!loaded) return reload;
+        }
+
+        string removed;
+        lock (BindingsLock)
+        {
+            _bindings.TryGetValue(key, out removed);
+            if (removed != null) _bindings.Remove(key);
+        }
+        var result = removed == null
+            ? $"{key} has no key binding"
+            : SaveBindings()
+                ? $"{key} unbound from key {Short(removed)}; their next key proof binds a new key"
+                : $"{key} unbound in memory, but saving keyguard_bindings.json failed (see the log)";
+        if (removed != null) TavernAntiLogger.Msg($"KeyGuard: {result} (console)");
+        if (!rejoin) return result;
+
+        foreach (var player in Player.AllPlayers)
+        {
+            var c = player?.ConnectionToRemotePlayer;
+            if (c == null || !string.Equals(Logins.Of(c), key, StringComparison.OrdinalIgnoreCase)) continue;
+            TavernAntiLogger.Msg($"KeyGuard: disconnecting {key} so their next join binds their key (console rebind)");
+            c.Disconnect("TavernAnti: rejoin to register your key");
+            return result + "; they were disconnected and bind their key when they rejoin";
+        }
+        return result + "; they are not online, so the key binds on their next join";
     }
 }
