@@ -11,12 +11,13 @@ namespace TavernAnti.Core;
 
 public class ViolationTracker(AntiCheatConfigFile config) : IService
 {
-    public readonly struct Event(DateTime time, int weight, ViolationType type, string detail)
+    public readonly struct Event(DateTime time, int weight, ViolationType type, string detail, bool logOnly = false)
     {
         public DateTime Time { get; } = time;
         public int Weight { get; } = weight;
         public ViolationType Type { get; } = type;
         public string Detail { get; } = detail;
+        public bool LogOnly { get; } = logOnly;
     }
 
     private class Record
@@ -48,6 +49,20 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
             var who = login ?? $"(unknown login, connection {connection?.Identifier})";
             var weight = cfg.Weights.TryGetValue(type, out var w) ? w : 1;
             var record = _records.GetOrAdd(who, _ => new Record());
+
+            if (cfg.IsLogOnly(type))
+            {
+                int current;
+                lock (record)
+                {
+                    var now = DateTime.UtcNow;
+                    record.Events.RemoveAll(e => e.Time < now - TimeSpan.FromSeconds(cfg.ViolationWindowSeconds));
+                    record.Events.Add(new Event(now, 0, type, detail, true));
+                    current = record.Events.Sum(e => e.Weight);
+                }
+                TavernAntiLogger.Warn($"{who} violation={type} detail=\"{detail}\" log only (weight {weight} not counted, movement_log_only) score={current}");
+                return false;
+            }
 
             int before, score;
             lock (record)

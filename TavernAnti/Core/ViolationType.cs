@@ -20,4 +20,6 @@ public enum ViolationType
     KeyIdMismatch,
     KeyMissing,
     KeyMismatch,
+    Hovering,
+    Underground,
 }

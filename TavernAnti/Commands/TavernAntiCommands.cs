@@ -30,7 +30,7 @@ public static class TavernAntiCommands
         var cfg = file.LastRead;
         var sb = new StringBuilder();
         sb.AppendLine($"enforcement: {Level(cfg)} (alert at {cfg.AlertThreshold}, kick at {cfg.KickThreshold}, ban at {cfg.BanThreshold}, window {cfg.ViolationWindowSeconds} s)");
-        sb.AppendLine($"checks: movement {On(cfg.MovementChecks)}, interact {On(cfg.InteractChecks)}, grab {On(cfg.GrabChecks)}, dev_guard {(DevGuard.Standalone ? "standalone DevGuard" : On(cfg.DevGuard))}, join_guard {On(cfg.JoinGuard)}, key_guard {On(cfg.KeyGuard)}");
+        sb.AppendLine($"checks: movement {On(cfg.MovementChecks)}{Movement(cfg)}, interact {On(cfg.InteractChecks)}, grab {On(cfg.GrabChecks)}, dev_guard {(DevGuard.Standalone ? "standalone DevGuard" : On(cfg.DevGuard))}, join_guard {On(cfg.JoinGuard)}, key_guard {On(cfg.KeyGuard)}");
         sb.AppendLine($"webhook: {WebhookState(cfg)}");
         if (!Staff.Ready()) sb.AppendLine("staff: TavernLib's Roles API is missing, nobody is treated as staff");
         else if (KeyGuard.Gating) sb.AppendLine("staff: rights wait for each staff login's key proof");
@@ -153,7 +153,7 @@ public static class TavernAntiCommands
         var cfg = file.LastRead;
         var keys = KeyGuard.ReloadBindings();
         TavernAntiLogger.Msg($"Console reload: enforcement={Level(cfg)}, dev_guard={On(cfg.DevGuard)}, join_guard={On(cfg.JoinGuard)}, key_guard={On(cfg.KeyGuard)}; KeyGuard: {keys}");
-        return $"Reloaded. enforcement {Level(cfg)}; movement {On(cfg.MovementChecks)}, interact {On(cfg.InteractChecks)}, grab {On(cfg.GrabChecks)}, dev_guard {On(cfg.DevGuard)}, join_guard {On(cfg.JoinGuard)}, key_guard {On(cfg.KeyGuard)}; webhook {WebhookState(cfg)}; KeyGuard: {keys}{ThresholdNote(cfg)}";
+        return $"Reloaded. enforcement {Level(cfg)}; movement {On(cfg.MovementChecks)}{Movement(cfg)}, interact {On(cfg.InteractChecks)}, grab {On(cfg.GrabChecks)}, dev_guard {On(cfg.DevGuard)}, join_guard {On(cfg.JoinGuard)}, key_guard {On(cfg.KeyGuard)}; webhook {WebhookState(cfg)}; KeyGuard: {keys}{ThresholdNote(cfg)}";
     }
 
     [Command("webhook", "Show the Discord webhook state")]
@@ -205,7 +205,7 @@ public static class TavernAntiCommands
         if (events.Count == 0) sb.AppendLine("No violations in the window");
         var now = DateTime.UtcNow;
         foreach (var e in events.OrderByDescending(e => e.Time).Take(20))
-            sb.AppendLine($"  {(now - e.Time).TotalSeconds:F0} s ago: {e.Type} (+{e.Weight}) {e.Detail}");
+            sb.AppendLine($"  {(now - e.Time).TotalSeconds:F0} s ago: {e.Type} ({(e.LogOnly ? "log only" : "+" + e.Weight)}) {e.Detail}");
         if (events.Count > 20) sb.AppendLine($"  ... {events.Count - 20} older");
         return sb.ToString().TrimEnd();
     }
@@ -241,6 +241,9 @@ public static class TavernAntiCommands
     private static string Level(AntiCheatConfig cfg) => cfg.Enforcement.ToString().ToLowerInvariant();
 
     private static string On(bool on) => on ? "on" : "off";
+
+    private static string Movement(AntiCheatConfig cfg) =>
+        $" (hover {On(cfg.HoverCheck)}, underground {On(cfg.UndergroundCheck)}{(cfg.MovementLogOnly ? ", speed/fly/hover/underground log only" : "")})";
 
     private static string WebhookState(AntiCheatConfig cfg)
     {

@@ -18,6 +18,16 @@ public class AntiCheatConfig
     [JsonProperty("fly_min_ascend_speed_mps")] public float FlyMinAscendSpeedMps { get; set; } = 0.75f;
     [JsonProperty("fly_violation_consecutive_ticks")] public int FlyViolationConsecutiveTicks { get; set; } = 5;
 
+    [JsonProperty("movement_log_only")] public bool MovementLogOnly { get; set; } = true;
+    [JsonProperty("dash_grace_seconds")] public float DashGraceSeconds { get; set; } = 1f;
+    [JsonProperty("hover_check")] public bool HoverCheck { get; set; } = true;
+    [JsonProperty("hover_min_height")] public float HoverMinHeight { get; set; } = 1.5f;
+    [JsonProperty("hover_max_vertical_speed_mps")] public float HoverMaxVerticalSpeedMps { get; set; } = 0.3f;
+    [JsonProperty("hover_seconds")] public float HoverSeconds { get; set; } = 2f;
+    [JsonProperty("underground_check")] public bool UndergroundCheck { get; set; } = true;
+    [JsonProperty("underground_depth")] public float UndergroundDepth { get; set; } = 2f;
+    [JsonProperty("underground_seconds")] public float UndergroundSeconds { get; set; } = 3f;
+
     [JsonProperty("interact_checks")] public bool InteractChecks { get; set; } = true;
     [JsonProperty("max_interacts_per_second")] public int MaxInteractsPerSecond { get; set; } = 8;
 
@@ -53,6 +63,8 @@ public class AntiCheatConfig
         [ViolationType.KeyIdMismatch] = 10,
         [ViolationType.KeyMissing] = 5,
         [ViolationType.KeyMismatch] = 10,
+        [ViolationType.Hovering] = 4,
+        [ViolationType.Underground] = 4,
     };
 
     [JsonProperty("violation_window_seconds")] public int ViolationWindowSeconds { get; set; } = 300;
@@ -77,4 +89,7 @@ public class AntiCheatConfig
     }
 
     [JsonIgnore] public bool Blocks => Enforcement >= Enforcement.Alert;
+
+    public bool IsLogOnly(ViolationType type) =>
+        MovementLogOnly && type is ViolationType.SpeedHack or ViolationType.Flying or ViolationType.Hovering or ViolationType.Underground;
 }

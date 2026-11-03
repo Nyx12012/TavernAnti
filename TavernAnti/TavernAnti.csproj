@@ -222,7 +222,7 @@
     <Compile Include="Config\AntiCheatConfigFile.cs" />
     <Compile Include="Config\TrustedUserStore.cs" />
     <Compile Include="Core\DevGuard.cs" />
-    <Compile Include="Core\Discord.cs" />
+    <Compile Include="Core\DiscordWebhook.cs" />
     <Compile Include="Core\Enforcement.cs" />
     <Compile Include="Core\EnforcementActions.cs" />
     <Compile Include="Core\GrabGuard.cs" />
@@ -235,6 +235,7 @@
     <Compile Include="Core\ViolationTracker.cs" />
     <Compile Include="Core\ViolationType.cs" />
     <Compile Include="Patches\CommandPermissionPatch.cs" />
+    <Compile Include="Patches\DashPatch.cs" />
     <Compile Include="Patches\DevGuardPatches.cs" />
     <Compile Include="Patches\GrabGuardPatches.cs" />
     <Compile Include="Patches\InteractionGuardPatch.cs" />
