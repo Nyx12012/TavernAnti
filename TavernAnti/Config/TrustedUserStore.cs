@@ -10,12 +10,12 @@ namespace TavernAnti.Config;
 /// Trust checks against TavernLib's own live user store, not a separate TavernAnti-owned copy.
 /// TavernLib.dll now has Roles (per-user) and UserIds (on blacklist) added to UserConfig - see
 /// TavernLib\Backend\Server\Configs\UserConfigFile.cs - so both plugins share one schema, one
-/// file, and (via TavernApiManager.UserConfig) one live in-memory instance: TavernAnti reads and
+/// file, and (via TavernManager.UserConfig) one live in-memory instance: TavernAnti reads and
 /// writes the exact same UserConfig object TavernLib's own AuthManager uses, rather than each
 /// independently reading/writing the file and risking a lost update between them.
 ///
 /// This makes TavernLib a hard runtime requirement for these features, not just a
-/// same-file cooperation: if TavernApiManager isn't registered (TavernLib not installed, or not
+/// same-file cooperation: if TavernManager isn't registered (TavernLib not installed, or not
 /// running in server mode), both methods fail closed - IsOperator returns false, AppendBan logs
 /// and does nothing.
 /// </summary>
@@ -80,10 +80,10 @@ public class TrustedUserStore : IService
 
     private static UserConfigFile GetUserConfig()
     {
-        var apiManager = TavernServices.GetService<TavernApiManager>();
+        var apiManager = TavernServices.GetService<TavernManager>();
         if (apiManager?.UserConfig != null) return apiManager.UserConfig;
 
-        TavernAntiLogger.Error("TavernLib's TavernApiManager/UserConfig isn't available - is TavernLib installed and running in server mode?");
+        TavernAntiLogger.Error("TavernLib's TavernManager/UserConfig isn't available - is TavernLib installed and running in server mode?");
         return null;
     }
 }

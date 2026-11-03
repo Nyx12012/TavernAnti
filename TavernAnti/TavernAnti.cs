@@ -9,6 +9,11 @@ using TavernAnti.Core;
 using TavernLib.Services;
 
 [assembly: MelonInfo(typeof(TavernAnti.TavernAntiPlugin), "TavernAnti", "0.1.0", "Tavern Team", "https://github.com/ModdingTavern/TavernAnti")]
+// MelonLoader auto-patches a plugin at MelonHarmonyEarlyInit, right after Plugins\ load and
+// before Unity is up. Patching NetworkEntity.SerializeMove that early breaks every
+// Component.get_transform/get_gameObject icall and the server never boots. Patch explicitly
+// in OnInitializeMelon instead (this also stops every patch being applied twice).
+[assembly: HarmonyDontPatchAll]
 namespace TavernAnti;
 
 public class TavernAntiPlugin : MelonPlugin
@@ -51,7 +56,7 @@ public class TavernAntiPlugin : MelonPlugin
             // uses for its own server-only services.
             if (!CommandLineArguments.Contains(CommandLineArguments.StartServerArgument)) return;
 
-            TavernAntiLogger.Msg("Booting TavernAnti in server mode");
+            TavernAntiLogger.Msg($"Booting TavernAnti in server mode (build {File.GetLastWriteTimeUtc(Assembly.GetExecutingAssembly().Location):yyyy-MM-dd HH:mm:ss} UTC)");
 
             // TavernServices is TavernLib's own static service locator - shared with TavernLib
             // itself now that TavernLib.dll is a real reference, not TavernAnti's own copy.
