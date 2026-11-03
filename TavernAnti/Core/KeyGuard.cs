@@ -351,11 +351,6 @@ internal static class KeyGuard
         var player = c.Player;
         var tracker = TavernServices.GetService<ViolationTracker>();
         if (player == null || tracker == null) return;
-        if (Staff.IsStaff(player))
-        {
-            TavernAntiLogger.Warn($"KeyGuard: staff login {Logins.NameOf(player)} failed the key check ({detail}); staff are exempt, so nothing is done");
-            return;
-        }
         if (tracker.Report(player, type, detail) && !c.IsDisposed)
             EnforcementActions.Kick(c, Logins.NameOf(player), "TavernAnti could not confirm your identity key");
     }

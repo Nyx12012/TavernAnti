@@ -33,7 +33,7 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
     {
         try
         {
-            if (player != null ? Staff.IsStaff(player) : Staff.IsStaff(login)) return false;
+            if (!AppliesToStaff(type) && (player != null ? Staff.IsStaff(player) : Staff.IsStaff(login))) return false;
 
             var cfg = config.LastRead;
             var joining = player == null;
@@ -90,6 +90,9 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
             return false;
         }
     }
+
+    private static bool AppliesToStaff(ViolationType type) =>
+        type is ViolationType.KeyIdMismatch or ViolationType.KeyMissing or ViolationType.KeyMismatch;
 
     public int ScoreOf(string login)
     {
