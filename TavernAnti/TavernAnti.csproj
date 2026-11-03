@@ -222,12 +222,14 @@
     <Compile Include="Config\TrustedUserStore.cs" />
     <Compile Include="Core\Enforcement.cs" />
     <Compile Include="Core\EnforcementActions.cs" />
+    <Compile Include="Core\GrabGuard.cs" />
     <Compile Include="Core\Identity.cs" />
     <Compile Include="Core\MovementMonitor.cs" />
     <Compile Include="Core\ViolationTracker.cs" />
     <Compile Include="Core\ViolationType.cs" />
     <Compile Include="Patches\CommandPermissionPatch.cs" />
     <Compile Include="Patches\DeveloperClaimGuardPatch.cs" />
+    <Compile Include="Patches\GrabGuardPatches.cs" />
     <Compile Include="Patches\IdentityTokenClaimGuardPatch.cs" />
     <Compile Include="Patches\InteractionGuardPatch.cs" />
     <Compile Include="Patches\ServerMovePatch.cs" />

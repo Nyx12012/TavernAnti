@@ -10,16 +10,10 @@ using HarmonyLib;
 
 namespace TavernAnti.Core;
 
-/// <summary>
-/// The login each connection joined with, captured from the join answer (same approach as
-/// DevGuard). Never read player.UserInfo for identity: the player's own client can rewrite it
-/// after join through SyncA.
-/// </summary>
 internal static class Logins
 {
     private static readonly Dictionary<Connection, string> ByConnection = new();
 
-    /// <summary>Raised once per connection when it drops; per-session state hangs off this.</summary>
     internal static event Action<Connection> Disconnected;
 
     internal static void Remember(Connection connection, string login)
@@ -29,7 +23,6 @@ internal static class Logins
         Watch(connection);
     }
 
-    /// <summary>Make sure this connection's state is dropped when it disconnects. Idempotent.</summary>
     internal static void Watch(Connection connection)
     {
         if (connection == null) return;
@@ -45,13 +38,11 @@ internal static class Logins
         catch (Exception e) { TavernAntiLogger.Error($"Error while clearing state for a disconnect: {e}"); }
     }
 
-    /// <summary>The connection's login, or null if we never saw its join.</summary>
     internal static string Of(Connection connection)
     {
         if (connection == null) return null;
         lock (ByConnection)
             if (ByConnection.TryGetValue(connection, out var login)) return login;
-        // Set once by the game from the same join answer; still the login, never the avatar copy.
         return connection.UserInfo?.Username;
     }
 
@@ -60,10 +51,6 @@ internal static class Logins
     internal static string NameOf(IPlayer player) => Of(player) ?? "(unknown login)";
 }
 
-/// <summary>
-/// Staff = admin, moderator or owner in TavernLib's users.json, read through TavernLib's Roles
-/// API (1.5.3+) by reflection, like DevGuard. Staff are exempt from every check.
-/// </summary>
 internal static class Staff
 {
     internal static readonly string[] Roles = ["admin", "moderator", "owner"];
@@ -83,7 +70,6 @@ internal static class Staff
         return _api != null;
     }
 
-    /// <summary>The staff role this login holds, or null. Fails closed (null) on any error.</summary>
     internal static string RoleOf(string login)
     {
         if (string.IsNullOrEmpty(login) || !Ready()) return null;
@@ -106,7 +92,6 @@ internal static class Staff
 
     internal static bool IsStaff(string login) => RoleOf(login) != null;
 
-    /// <summary>Per-connection, cached for a few seconds: the movement monitor asks every frame.</summary>
     internal static bool IsStaff(IPlayer player)
     {
         var connection = player?.ConnectionToRemotePlayer;
@@ -127,10 +112,6 @@ internal static class Staff
     }
 }
 
-/// <summary>
-/// Captures the login from each successful join answer. Only reads the answer, never changes it,
-/// so it sits safely beside DevGuard / TavernEssentials postfixes on the same method.
-/// </summary>
 [HarmonyPatch(typeof(ServerPlayerConnectionHandlerOld), "CheckIfPlayerIsAllowedCustom")]
 public static class JoinLoginPatch
 {

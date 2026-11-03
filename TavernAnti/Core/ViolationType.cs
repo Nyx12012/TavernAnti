@@ -9,4 +9,7 @@ public enum ViolationType
     InteractRate,
     UnauthorizedWrite,
     CommandPermission,
+    GrabOtherPlayer,
+    GrabArmReach,
+    GrabBodyReach,
 }

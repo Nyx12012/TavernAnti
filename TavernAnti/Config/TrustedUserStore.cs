@@ -6,17 +6,6 @@ using TavernLib.Services;
 
 namespace TavernAnti.Config;
 
-/// <summary>
-/// Writes bans into TavernLib's own live user store, not a separate TavernAnti-owned copy, so
-/// both plugins share one schema, one file, and (via TavernManager.UserConfig) one live
-/// in-memory instance: TavernAnti writes the exact same UserConfig object TavernLib's own
-/// AuthManager uses, rather than each independently reading/writing the file and risking a lost
-/// update between them. Who counts as staff is answered by TavernLib's Roles API (see
-/// Core.Staff), not here.
-///
-/// If TavernManager isn't registered (TavernLib not installed, or not running in server mode),
-/// AppendBan logs and does nothing.
-/// </summary>
 public class TrustedUserStore : IService
 {
     public void AppendBan(string username, string ip)
@@ -49,7 +38,7 @@ public class TrustedUserStore : IService
         var apiManager = TavernServices.GetService<TavernManager>();
         if (apiManager?.UserConfig != null) return apiManager.UserConfig;
 
-        TavernAntiLogger.Error("TavernLib's TavernManager/UserConfig isn't available - is TavernLib installed and running in server mode?");
+        TavernAntiLogger.Error("TavernLib's TavernManager/UserConfig isn't available. Is TavernLib installed and running in server mode?");
         return null;
     }
 }

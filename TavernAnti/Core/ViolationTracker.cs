@@ -8,11 +8,6 @@ using TavernLib.Services;
 
 namespace TavernAnti.Core;
 
-/// <summary>
-/// Per-login sliding-window suspicion accumulator. Every detector reports into this instead of
-/// acting directly, so the ladder (log -> alert -> kick -> ban) lives in one place. Keyed on the
-/// connection login, so a kicked player who rejoins keeps their score until the window lapses.
-/// </summary>
 public class ViolationTracker(AntiCheatConfigFile config) : IService
 {
     private class Record
@@ -22,10 +17,6 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
 
     private readonly ConcurrentDictionary<string, Record> _records = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Records a violation and runs the ladder. Returns true if the caller should block what it
-    /// caught (enforcement is "alert" or higher and the player is not staff).
-    /// </summary>
     public bool Report(IPlayer player, ViolationType type, string detail)
     {
         if (player == null) return false;
@@ -75,8 +66,6 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
                     EnforcementActions.Kick(player, who, reason);
                     break;
                 case Enforcement.Alert:
-                    // Alert once per crossing, not on every violation above the line.
-                    // TODO(step 5): Discord webhook.
                     if (before < cfg.AlertThreshold)
                         TavernAntiLogger.Warn($"ALERT: {who} crossed the alert threshold ({reason}, last: {type})");
                     break;

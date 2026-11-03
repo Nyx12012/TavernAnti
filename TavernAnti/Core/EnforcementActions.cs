@@ -8,8 +8,6 @@ namespace TavernAnti.Core;
 
 internal static class EnforcementActions
 {
-    // Connection.IpAddress is a private field, inaccessible via normal dot-syntax against
-    // the raw (non-publicized) Root.Township.dll - read via reflection instead.
     private static readonly FieldInfo IpAddressField = AccessTools.Field(typeof(Connection), "IpAddress");
 
     public static void Kick(IPlayer player, string who, string reason)
@@ -32,7 +30,6 @@ internal static class EnforcementActions
         }
     }
 
-    /// <summary>Bans the login (never the client-rewritable player.UserInfo name) and the IP.</summary>
     public static void Ban(IPlayer player, string login, string reason, TrustedUserStore userStore)
     {
         try
