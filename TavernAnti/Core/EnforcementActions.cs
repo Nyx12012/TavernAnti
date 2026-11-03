@@ -12,18 +12,18 @@ internal static class EnforcementActions
     // the raw (non-publicized) Root.Township.dll - read via reflection instead.
     private static readonly FieldInfo IpAddressField = AccessTools.Field(typeof(Connection), "IpAddress");
 
-    public static void Kick(IPlayer player, string reason)
+    public static void Kick(IPlayer player, string who, string reason)
     {
         try
         {
             var connection = player?.ConnectionToRemotePlayer;
             if (connection == null)
             {
-                TavernAntiLogger.Warn($"Wanted to kick {player?.UserInfo?.Username} but no connection was available");
+                TavernAntiLogger.Warn($"Wanted to kick {who} but no connection was available");
                 return;
             }
 
-            TavernAntiLogger.Warn($"Kicking {player.UserInfo?.Username}: {reason}");
+            TavernAntiLogger.Warn($"Kicking {who}: {reason}");
             connection.Disconnect($"TavernAnti: {reason}");
         }
         catch (System.Exception e)
@@ -32,19 +32,22 @@ internal static class EnforcementActions
         }
     }
 
-    public static void Ban(IPlayer player, string reason, TrustedUserStore userStore)
+    /// <summary>Bans the login (never the client-rewritable player.UserInfo name) and the IP.</summary>
+    public static void Ban(IPlayer player, string login, string reason, TrustedUserStore userStore)
     {
         try
         {
-            var username = player?.UserInfo?.Username;
             var connection = player?.ConnectionToRemotePlayer;
-            var ip = connection != null ? IpAddressField.GetValue(connection) as string : null;
+            var ip = connection != null ? IpAddressField?.GetValue(connection) as string : null;
+            var who = login ?? "(unknown login)";
 
-            TavernAntiLogger.Warn($"Banning {username} ({ip}): {reason}");
+            if (login == null) TavernAntiLogger.Warn($"Banning a player whose login is unknown: IP only ({ip})");
+            TavernAntiLogger.Warn($"Banning {who} ({ip}): {reason}");
 
-            userStore.AppendBan(username, ip);
+            if (userStore != null) userStore.AppendBan(login, ip);
+            else TavernAntiLogger.Error($"TrustedUserStore missing; {who} is kicked but NOT banned");
 
-            Kick(player, reason);
+            Kick(player, who, reason);
         }
         catch (System.Exception e)
         {

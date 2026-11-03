@@ -9,8 +9,9 @@ using TavernLib.Services;
 namespace TavernAnti.Core;
 
 /// <summary>
-/// Per-player sliding-window suspicion accumulator. Every detector patch reports into this
-/// instead of taking enforcement action directly, so thresholds/escalation live in one place.
+/// Per-login sliding-window suspicion accumulator. Every detector reports into this instead of
+/// acting directly, so the ladder (log -> alert -> kick -> ban) lives in one place. Keyed on the
+/// connection login, so a kicked player who rejoins keeps their score until the window lapses.
 /// </summary>
 public class ViolationTracker(AntiCheatConfigFile config) : IService
 {
@@ -19,76 +20,86 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
         public readonly List<(DateTime Time, int Weight)> Events = new();
     }
 
-    private readonly ConcurrentDictionary<IPlayer, Record> _records = new();
+    private readonly ConcurrentDictionary<string, Record> _records = new(StringComparer.OrdinalIgnoreCase);
 
-    public void Report(IPlayer player, ViolationType type, string detail)
+    /// <summary>
+    /// Records a violation and runs the ladder. Returns true if the caller should block what it
+    /// caught (enforcement is "alert" or higher and the player is not staff).
+    /// </summary>
+    public bool Report(IPlayer player, ViolationType type, string detail)
     {
-        if (player == null) return;
+        if (player == null) return false;
 
         try
         {
-            var cfg = config.LastRead;
-            var weight = cfg.Weights.TryGetValue(type, out var w) ? w : 1;
-            var record = _records.GetOrAdd(player, _ => new Record());
+            if (Staff.IsStaff(player)) return false;
 
-            int score;
+            var cfg = config.LastRead;
+            var login = Logins.Of(player);
+            var who = login ?? $"(unknown login, connection {player.ConnectionToRemotePlayer?.Identifier})";
+            var weight = cfg.Weights.TryGetValue(type, out var w) ? w : 1;
+            var record = _records.GetOrAdd(who, _ => new Record());
+
+            int before, score;
             lock (record)
             {
                 var now = DateTime.UtcNow;
-                record.Events.Add((now, weight));
-
                 var windowStart = now - TimeSpan.FromSeconds(cfg.ViolationWindowSeconds);
                 record.Events.RemoveAll(e => e.Time < windowStart);
-
-                score = record.Events.Sum(e => e.Weight);
+                before = record.Events.Sum(e => e.Weight);
+                record.Events.Add((now, weight));
+                score = before + weight;
             }
 
-            var username = player.UserInfo?.Username ?? "<unknown>";
-            var dryRunTag = cfg.DryRun ? " [DRY RUN]" : "";
-            TavernAntiLogger.Warn($"{username} violation={type} detail=\"{detail}\" weight={weight} score={score}{dryRunTag}");
+            var level = cfg.Enforcement;
+            TavernAntiLogger.Warn($"{who} violation={type} detail=\"{detail}\" weight={weight} score={score} enforcement={level.ToString().ToLowerInvariant()}");
 
-            if (score >= cfg.BanThreshold)
+            var reached = score >= cfg.BanThreshold ? Enforcement.Ban
+                : score >= cfg.KickThreshold ? Enforcement.Kick
+                : score >= cfg.AlertThreshold ? Enforcement.Alert
+                : Enforcement.Log;
+            if (reached == Enforcement.Log) return cfg.Blocks;
+
+            var step = reached <= level ? reached : level;
+            if (step < reached)
+                TavernAntiLogger.Warn($"{who} reached {reached.ToString().ToLowerInvariant()} (score {score}); enforcement stops at {level.ToString().ToLowerInvariant()}");
+
+            var reason = $"suspicious activity score {score}";
+            switch (step)
             {
-                Escalate(player, username, score, cfg.DryRun, isBan: true);
-                lock (record) record.Events.Clear();
+                case Enforcement.Ban:
+                    EnforcementActions.Ban(player, login, reason, TavernServices.GetService<TrustedUserStore>());
+                    lock (record) record.Events.Clear();
+                    break;
+                case Enforcement.Kick:
+                    EnforcementActions.Kick(player, who, reason);
+                    break;
+                case Enforcement.Alert:
+                    // Alert once per crossing, not on every violation above the line.
+                    // TODO(step 5): Discord webhook.
+                    if (before < cfg.AlertThreshold)
+                        TavernAntiLogger.Warn($"ALERT: {who} crossed the alert threshold ({reason}, last: {type})");
+                    break;
             }
-            else if (score >= cfg.KickThreshold)
-            {
-                Escalate(player, username, score, cfg.DryRun, isBan: false);
-            }
+
+            return cfg.Blocks;
         }
         catch (Exception e)
         {
             TavernAntiLogger.Error($"Error while recording violation: {e}");
+            return false;
         }
     }
 
-    private static void Escalate(IPlayer player, string username, int score, bool dryRun, bool isBan)
+    public int ScoreOf(string login)
     {
-        var reason = $"suspicious activity score {score}";
-
-        if (dryRun)
-        {
-            TavernAntiLogger.Warn($"[DRY RUN] Would {(isBan ? "ban" : "kick")} {username} ({reason})");
-            return;
-        }
-
-        if (isBan)
-        {
-            var userStore = TavernServices.GetService<TrustedUserStore>();
-            EnforcementActions.Ban(player, reason, userStore);
-        }
-        else
-        {
-            EnforcementActions.Kick(player, reason);
-        }
+        if (login == null || !_records.TryGetValue(login, out var record)) return 0;
+        var windowStart = DateTime.UtcNow - TimeSpan.FromSeconds(config.LastRead.ViolationWindowSeconds);
+        lock (record) return record.Events.Where(e => e.Time >= windowStart).Sum(e => e.Weight);
     }
 
-    public void ResetOnDisconnect(IPlayer player)
+    public void Clear(string login)
     {
-        if (player == null) return;
-
-        _records.TryRemove(player, out _);
-        PlayerMovementState.Clear(player);
+        if (login != null) _records.TryRemove(login, out _);
     }
 }

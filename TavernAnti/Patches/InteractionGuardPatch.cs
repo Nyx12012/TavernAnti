@@ -28,27 +28,33 @@ namespace TavernAnti.Patches;
 [HarmonyPatch(typeof(EntityMessageHandler), nameof(EntityMessageHandler.HandleMessage))]
 public static class InteractionGuardPatch
 {
-    private static readonly ConcurrentDictionary<IPlayer, Queue<DateTime>> InteractTimestamps = new();
+    // Keyed on the connection and dropped on disconnect, so player objects don't leak.
+    private static readonly ConcurrentDictionary<Connection, Queue<DateTime>> InteractTimestamps = new();
 
     // EntityMessageHandler.entity is a private field, inaccessible via normal dot-syntax
     // against the raw (non-publicized) Root.Township.dll - read via reflection instead.
     private static readonly FieldInfo EntityField = AccessTools.Field(typeof(EntityMessageHandler), "entity");
+
+    public static void Init()
+    {
+        Logins.Disconnected += connection => InteractTimestamps.TryRemove(connection, out _);
+    }
 
     [HarmonyPrefix]
     public static bool Prefix(EntityMessageHandler __instance, EntityMessageType type, IPlayer player, Stream stream)
     {
         if (type != EntityMessageType.Interact && type != EntityMessageType.InteractEnd) return true;
         if (!NetworkSceneManager.IsServer || NetworkSceneManager.IsLocalTest) return true;
-        if (player == null) return true;
+        if (player?.ConnectionToRemotePlayer == null) return true;
+        if (Staff.IsStaff(player)) return true;
 
         var config = TavernServices.GetService<AntiCheatConfigFile>()?.LastRead;
         var tracker = TavernServices.GetService<ViolationTracker>();
         if (config == null || tracker == null) return true;
 
-        if (IsOverRate(player, config.MaxInteractsPerSecond))
+        if (IsOverRate(player.ConnectionToRemotePlayer, config.MaxInteractsPerSecond))
         {
-            tracker.Report(player, ViolationType.InteractRate, $"type={type} limit={config.MaxInteractsPerSecond}/s");
-            return config.DryRun;
+            return !tracker.Report(player, ViolationType.InteractRate, $"type={type} limit={config.MaxInteractsPerSecond}/s");
         }
 
         var entity = EntityField.GetValue(__instance) as INetworkEntity;
@@ -59,18 +65,21 @@ public static class InteractionGuardPatch
             var distance = Vector3.Distance(playerTransform.position, target.position);
             if (distance > config.MaxInteractReach)
             {
-                tracker.Report(player, ViolationType.InteractRange, $"type={type} distance={distance:F1} max={config.MaxInteractReach}");
-                return config.DryRun;
+                return !tracker.Report(player, ViolationType.InteractRange, $"type={type} distance={distance:F1} max={config.MaxInteractReach}");
             }
         }
 
         return true;
     }
 
-    private static bool IsOverRate(IPlayer player, int maxPerSecond)
+    private static bool IsOverRate(Connection connection, int maxPerSecond)
     {
         var now = DateTime.UtcNow;
-        var queue = InteractTimestamps.GetOrAdd(player, _ => new Queue<DateTime>());
+        var queue = InteractTimestamps.GetOrAdd(connection, c =>
+        {
+            Logins.Watch(c);
+            return new Queue<DateTime>();
+        });
 
         lock (queue)
         {

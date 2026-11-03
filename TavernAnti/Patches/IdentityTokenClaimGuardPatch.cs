@@ -5,7 +5,7 @@ using Alta.Networking;
 using HarmonyLib;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using TavernAnti.Config;
+using TavernAnti.Core;
 using TavernLib.Services;
 
 namespace TavernAnti.Patches;
@@ -34,7 +34,7 @@ namespace TavernAnti.Patches;
 /// Rather than trying to intercept every current and future consumer individually, this
 /// patches the shared decode itself: before JWTUtility.CreateFromString runs, this rewrites
 /// the raw token string to strip an unverifiable "Policy" claim (unless the token's Username
-/// claim has an "owner" role in users.json, per TrustedUserStore.IsOperator), so every
+/// claim has a staff role (admin/moderator/owner) in users.json, per Core.Staff), so every
 /// consumer - CheckIfPlayerIsAllowed's direct claim check, UserRolesUtility, and anything else
 /// that decodes identity tokens - sees a token that never had the claim in the first place.
 /// This makes DeveloperClaimGuardPatch's own check largely redundant in practice (the claim
@@ -65,13 +65,12 @@ public static class IdentityTokenClaimGuardPatch
             if (string.IsNullOrEmpty(policy)) return; // nothing privileged claimed - nothing to guard
 
             var username = payload["Username"]?.Value<string>();
-            var userStore = TavernServices.GetService<TrustedUserStore>();
-            if (userStore != null && userStore.IsOperator(username)) return; // trusted, leave the token as-is
+            if (Staff.IsStaff(username)) return; // trusted, leave the token as-is
 
             TavernAntiLogger.Warn(
                 $"Stripping unverifiable Policy=\"{policy}\" claim from an identity token for username='{username ?? "<unknown>"}' " +
                 "before it reaches any consumer - JWTUtility.CreateFromString never checks a signature, so this claim can't be " +
-                "trusted without an \"owner\" role in users.json");
+                "trusted without a staff role (admin/moderator/owner) in users.json");
 
             payload.Remove("Policy");
             segments[1] = EncodeSegment(payload.ToString(Formatting.None));

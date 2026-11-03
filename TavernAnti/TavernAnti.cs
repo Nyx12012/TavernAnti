@@ -20,6 +20,10 @@ public class TavernAntiPlugin : MelonPlugin
 {
     internal static MelonLogger.Instance Logger { get; private set; }
 
+    // Server mode only; null on a client, which leaves OnUpdate idle.
+    private static AntiCheatConfigFile _config;
+    private static ViolationTracker _tracker;
+
     public override void OnEarlyInitializeMelon()
     {
         Logger = LoggerInstance;
@@ -38,12 +42,27 @@ public class TavernAntiPlugin : MelonPlugin
             // collides with HarmonyLib.Harmony when both are in scope via `using`.
             new HarmonyLib.Harmony("com.moddingtavern.tavernanti").PatchAll(Assembly.GetExecutingAssembly());
             TavernAntiLogger.Msg("Harmony patches applied");
+
+            MovementMonitor.Init();
+            Patches.InteractionGuardPatch.Init();
+            if (_config != null)
+            {
+                if (!Staff.Ready())
+                    TavernAntiLogger.Error("TavernLib's Roles API was not found (needs TavernLib 1.5.3 or newer): nobody is treated as staff, so admins get checked too.");
+                TavernAntiLogger.Msg($"enforcement={_config.LastRead.Enforcement.ToString().ToLowerInvariant()}; staff roles exempt: {string.Join(", ", Staff.Roles)}");
+            }
         }
         catch (Exception e)
         {
             Logger.BigError($"Error when applying TavernAnti Harmony patches!!!!! {e}");
             throw;
         }
+    }
+
+    public override void OnUpdate()
+    {
+        if (_config == null) return;
+        MovementMonitor.Tick(_config.LastRead, _tracker);
     }
 
     private void SetupServices()
@@ -74,7 +93,9 @@ public class TavernAntiPlugin : MelonPlugin
             TavernServices.AddService(config);
 
             TavernServices.AddService(new TrustedUserStore());
-            TavernServices.AddService(new ViolationTracker(config));
+            _tracker = new ViolationTracker(config);
+            TavernServices.AddService(_tracker);
+            _config = config;
         }
         catch (Exception e)
         {

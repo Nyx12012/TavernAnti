@@ -35,11 +35,11 @@ namespace TavernAnti.Patches;
 ///
 /// There is currently no accessible, verifiable source of per-player command permissions
 /// (the game's real Policy claims live on the join-time JWT and aren't retained anywhere after
-/// join completes) - see TrustedUserStore.IsOperator for why this ships as a coarser,
-/// fail-closed check against a "owner" role in users.json rather than a full per-player
-/// CommandContext reconstruction.
+/// join completes), so this ships as a coarser check: the sender's connection login must hold a
+/// staff role (admin/moderator/owner) through TavernLib's Roles API (see Core.Staff), rather
+/// than a full per-player CommandContext reconstruction.
 ///
-/// MANDATORY LIVE VERIFICATION before trusting this in DryRun=false: confirm on a real local
+/// MANDATORY LIVE VERIFICATION before trusting this with enforcement above log: confirm on a real local
 /// dedicated server that a non-operator client using the exploit's RunCommandOnServer
 /// reflection call is actually denied here, and that legitimate operator use (server owner
 /// console) still works.
@@ -77,15 +77,13 @@ public static class CommandPermissionPatch
 
         _lastNetworkedSender = null; // consume the attribution so it can't leak into an unrelated later call
 
-        var username = sender.UserInfo?.Username;
-        var userStore = TavernServices.GetService<TrustedUserStore>();
-        if (userStore != null && userStore.IsOperator(username)) return true;
+        if (Staff.IsStaff(sender)) return true;
 
-        var config = TavernServices.GetService<AntiCheatConfigFile>()?.LastRead;
-        TavernServices.GetService<ViolationTracker>()?.Report(sender, ViolationType.CommandPermission,
-            $"Networked command \"{command}\" arrived with no CommandContext (would run as the server's own identity) and sender \"{username}\" is not an operator");
+        var tracker = TavernServices.GetService<ViolationTracker>();
+        var block = tracker != null && tracker.Report(sender, ViolationType.CommandPermission,
+            $"Networked command \"{command}\" arrived with no CommandContext (would run as the server's own identity) and the sender is not staff");
 
-        if (config is not { DryRun: false }) return true;
+        if (!block) return true;
 
         __result = Task.FromResult(CommandResult.ErrorResult(new Exception("Command denied by TavernAnti: sender not authorized"), null));
         return false;
