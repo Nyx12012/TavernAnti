@@ -31,6 +31,7 @@ public class TavernAntiPlugin : MelonPlugin
     {
         try
         {
+            DevGuard.Detect();
             new HarmonyLib.Harmony("com.moddingtavern.tavernanti").PatchAll(Assembly.GetExecutingAssembly());
             TavernAntiLogger.Msg("Harmony patches applied");
 
@@ -40,7 +41,9 @@ public class TavernAntiPlugin : MelonPlugin
             {
                 if (!Staff.Ready())
                     TavernAntiLogger.Error("TavernLib's Roles API was not found (needs TavernLib 1.5.3 or newer): nobody is treated as staff, so admins get checked too.");
-                TavernAntiLogger.Msg($"enforcement={_config.LastRead.Enforcement.ToString().ToLowerInvariant()}; staff roles exempt: {string.Join(", ", Staff.Roles)}");
+                var cfg = _config.LastRead;
+                TavernAntiLogger.Msg($"enforcement={cfg.Enforcement.ToString().ToLowerInvariant()}; staff roles exempt: {string.Join(", ", Staff.Roles)}");
+                TavernAntiLogger.Msg($"dev_guard={(DevGuard.Standalone ? "standalone DevGuard" : cfg.DevGuard.ToString().ToLowerInvariant())}, join_guard={cfg.JoinGuard.ToString().ToLowerInvariant()}, key_guard={cfg.KeyGuard.ToString().ToLowerInvariant()}");
             }
         }
         catch (Exception e)
@@ -54,6 +57,8 @@ public class TavernAntiPlugin : MelonPlugin
     {
         if (_config == null) return;
         MovementMonitor.Tick(_config.LastRead, _tracker);
+        DevGuard.Tick(_config.LastRead);
+        KeyGuard.Tick(_config.LastRead, _tracker);
     }
 
     private void SetupServices()

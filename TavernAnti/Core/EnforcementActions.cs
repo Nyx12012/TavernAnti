@@ -1,6 +1,5 @@
 using System.Reflection;
 using Alta.Networking;
-using Alta.Networking.Scripts.Player;
 using HarmonyLib;
 using TavernAnti.Config;
 
@@ -10,11 +9,10 @@ internal static class EnforcementActions
 {
     private static readonly FieldInfo IpAddressField = AccessTools.Field(typeof(Connection), "IpAddress");
 
-    public static void Kick(IPlayer player, string who, string reason)
+    public static void Kick(Connection connection, string who, string reason)
     {
         try
         {
-            var connection = player?.ConnectionToRemotePlayer;
             if (connection == null)
             {
                 TavernAntiLogger.Warn($"Wanted to kick {who} but no connection was available");
@@ -30,11 +28,10 @@ internal static class EnforcementActions
         }
     }
 
-    public static void Ban(IPlayer player, string login, string reason, TrustedUserStore userStore)
+    public static void Ban(Connection connection, string login, string reason, TrustedUserStore userStore, bool joining)
     {
         try
         {
-            var connection = player?.ConnectionToRemotePlayer;
             var ip = connection != null ? IpAddressField?.GetValue(connection) as string : null;
             var who = login ?? "(unknown login)";
 
@@ -44,7 +41,7 @@ internal static class EnforcementActions
             if (userStore != null) userStore.AppendBan(login, ip);
             else TavernAntiLogger.Error($"TrustedUserStore missing; {who} is kicked but NOT banned");
 
-            Kick(player, who, reason);
+            if (!joining) Kick(connection, who, reason);
         }
         catch (System.Exception e)
         {

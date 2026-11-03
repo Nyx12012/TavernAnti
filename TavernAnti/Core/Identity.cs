@@ -2,10 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Threading.Tasks;
 using Alta.Networking;
 using Alta.Networking.Scripts.Player;
-using Alta.Networking.Servers;
 using HarmonyLib;
 
 namespace TavernAnti.Core;
@@ -109,44 +107,5 @@ internal static class Staff
     internal static void Forget(Connection connection)
     {
         lock (Cache) Cache.Remove(connection);
-    }
-}
-
-[HarmonyPatch(typeof(ServerPlayerConnectionHandlerOld), "CheckIfPlayerIsAllowedCustom")]
-public static class JoinLoginPatch
-{
-    [HarmonyPostfix]
-    public static void Postfix(Connection connection, object __result)
-    {
-        try
-        {
-            if (__result is not Task task) return;
-            if (task.IsCompleted) Capture(connection, task);
-            else task.ContinueWith(t => Capture(connection, t));
-        }
-        catch (Exception e)
-        {
-            TavernAntiLogger.Error($"Join login capture failed: {e}");
-        }
-    }
-
-    private static void Capture(Connection connection, Task task)
-    {
-        try
-        {
-            if (task.IsFaulted || task.IsCanceled) return;
-            var answer = task.GetType().GetProperty("Result")?.GetValue(task, null);
-            if (answer == null) return;
-            if (answer.GetType().GetProperty("IsSuccessful")?.GetValue(answer, null) is not true) return;
-            if (answer.GetType().GetProperty("UserInfo")?.GetValue(answer, null) is not UserInfoAndRole user) return;
-
-            Logins.Remember(connection, user.Username);
-            var role = Staff.RoleOf(user.Username);
-            if (role != null) TavernAntiLogger.Msg($"{user.Username} joined as {role}: exempt from every check");
-        }
-        catch (Exception e)
-        {
-            TavernAntiLogger.Error($"Join login capture failed: {e}");
-        }
     }
 }

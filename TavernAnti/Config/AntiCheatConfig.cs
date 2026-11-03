@@ -25,6 +25,11 @@ public class AntiCheatConfig
     [JsonProperty("grab_max_head_to_body")] public float GrabMaxHeadToBody { get; set; } = 4f;
     [JsonProperty("grab_after_teleport_seconds")] public float GrabAfterTeleportSeconds { get; set; } = 3f;
 
+    [JsonProperty("dev_guard")] public bool DevGuard { get; set; } = true;
+    [JsonProperty("join_guard")] public bool JoinGuard { get; set; } = true;
+    [JsonProperty("key_guard")] public bool KeyGuard { get; set; } = false;
+    [JsonProperty("key_guard_proof_seconds")] public float KeyGuardProofSeconds { get; set; } = 45f;
+
     [JsonProperty("violation_weights")]
     public Dictionary<ViolationType, int> Weights { get; set; } = new()
     {
@@ -38,6 +43,14 @@ public class AntiCheatConfig
         [ViolationType.GrabOtherPlayer] = 5,
         [ViolationType.GrabArmReach] = 3,
         [ViolationType.GrabBodyReach] = 3,
+        [ViolationType.ForgedJoinId] = 10,
+        [ViolationType.BadJoinToken] = 10,
+        [ViolationType.ForgedRoleClaim] = 5,
+        [ViolationType.PlayerInfoRewrite] = 5,
+        [ViolationType.DevTool] = 3,
+        [ViolationType.KeyIdMismatch] = 10,
+        [ViolationType.KeyMissing] = 5,
+        [ViolationType.KeyMismatch] = 10,
     };
 
     [JsonProperty("violation_window_seconds")] public int ViolationWindowSeconds { get; set; } = 300;

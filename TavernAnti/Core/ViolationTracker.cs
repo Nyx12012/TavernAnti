@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using Alta.Networking;
 using Alta.Networking.Scripts.Player;
 using TavernAnti.Config;
 using TavernLib.Services;
@@ -20,14 +21,23 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
     public bool Report(IPlayer player, ViolationType type, string detail)
     {
         if (player == null) return false;
+        return Report(player.ConnectionToRemotePlayer, player, Logins.Of(player), type, detail);
+    }
 
+    public bool ReportJoin(Connection connection, string login, ViolationType type, string detail)
+    {
+        return Report(connection, null, login, type, detail);
+    }
+
+    private bool Report(Connection connection, IPlayer player, string login, ViolationType type, string detail)
+    {
         try
         {
-            if (Staff.IsStaff(player)) return false;
+            if (player != null ? Staff.IsStaff(player) : Staff.IsStaff(login)) return false;
 
             var cfg = config.LastRead;
-            var login = Logins.Of(player);
-            var who = login ?? $"(unknown login, connection {player.ConnectionToRemotePlayer?.Identifier})";
+            var joining = player == null;
+            var who = login ?? $"(unknown login, connection {connection?.Identifier})";
             var weight = cfg.Weights.TryGetValue(type, out var w) ? w : 1;
             var record = _records.GetOrAdd(who, _ => new Record());
 
@@ -59,11 +69,12 @@ public class ViolationTracker(AntiCheatConfigFile config) : IService
             switch (step)
             {
                 case Enforcement.Ban:
-                    EnforcementActions.Ban(player, login, reason, TavernServices.GetService<TrustedUserStore>());
+                    EnforcementActions.Ban(connection, login, reason, TavernServices.GetService<TrustedUserStore>(), joining);
                     lock (record) record.Events.Clear();
                     break;
                 case Enforcement.Kick:
-                    EnforcementActions.Kick(player, who, reason);
+                    if (joining) TavernAntiLogger.Warn($"{who} refused at the door ({reason})");
+                    else EnforcementActions.Kick(connection, who, reason);
                     break;
                 case Enforcement.Alert:
                     if (before < cfg.AlertThreshold)

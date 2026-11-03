@@ -12,4 +12,12 @@ public enum ViolationType
     GrabOtherPlayer,
     GrabArmReach,
     GrabBodyReach,
+    ForgedJoinId,
+    BadJoinToken,
+    ForgedRoleClaim,
+    PlayerInfoRewrite,
+    DevTool,
+    KeyIdMismatch,
+    KeyMissing,
+    KeyMismatch,
 }
