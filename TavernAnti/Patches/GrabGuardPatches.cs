@@ -12,19 +12,29 @@ namespace TavernAnti.Patches;
 
 internal static class GrabStream
 {
-    internal static bool Decide(NetStream stream, uint start, Func<bool> check, Action refuse)
+    internal static bool Read(NetStream stream, Action<NetStream> read)
     {
-        var used = stream.BitIndex - start;
+        NetStream copy = null;
         try
         {
-            stream.BackTrack(used);
+            copy = stream.Clone() as NetStream;
+            if (copy == null) return false;
+            read(copy);
+            return true;
         }
         catch (Exception e)
         {
-            GrabGuard.Stop(e);
+            TavernAntiLogger.Warn($"Could not read a grab or dock message, letting it through: {e.Message}");
             return false;
         }
+        finally
+        {
+            (copy as IDisposable)?.Dispose();
+        }
+    }
 
+    internal static bool Decide(Func<bool> check, Action refuse)
+    {
         bool block;
         try
         {
@@ -36,8 +46,6 @@ internal static class GrabStream
             return true;
         }
         if (!block) return true;
-
-        stream.SkipBits(used);
         try
         {
             refuse();
@@ -47,22 +55,6 @@ internal static class GrabStream
             TavernAntiLogger.Error($"Could not send a refusal back: {e}");
         }
         return false;
-    }
-
-    internal static bool Unreadable(NetStream stream, uint start, Exception reason)
-    {
-        TavernAntiLogger.Warn($"Could not read a grab or dock message, letting it through: {reason.Message}");
-        try
-        {
-            var now = stream.BitIndex;
-            if (now > start) stream.BackTrack(now - start);
-            return true;
-        }
-        catch (Exception e)
-        {
-            GrabGuard.Stop(e);
-            return false;
-        }
     }
 
     internal static MethodInfo Resolve(Type type, string name, Type[] args, string label, ref bool logged)
@@ -112,7 +104,7 @@ public static class GrabStartPatch
 {
     private static bool _logged;
 
-    public static bool Prepare() => TargetMethod() != null;
+    public static bool Prepare() => !GrabGuard.Standalone && TargetMethod() != null;
 
     public static MethodBase TargetMethod() => GrabStream.Resolve(typeof(Interactor), "SyncStart",
         [typeof(IPlayer), typeof(NetStream), typeof(InteractArguments)], "Interactor.SyncStart(player, stream, args)", ref _logged);
@@ -121,18 +113,10 @@ public static class GrabStartPatch
     public static bool Prefix(Interactor __instance, IPlayer player, NetStream stream, InteractArguments args)
     {
         if (stream == null || stream.IsWriting || !GrabGuard.Watching) return true;
-        var start = stream.BitIndex;
         var peek = args;
-        try
-        {
-            peek.Serialize(player, stream);
-        }
-        catch (Exception e)
-        {
-            return GrabStream.Unreadable(stream, start, e);
-        }
+        if (!GrabStream.Read(stream, r => peek.Serialize(player, r))) return true;
         NetworkEntity entity = null;
-        return GrabStream.Decide(stream, start,
+        return GrabStream.Decide(
             () =>
             {
                 var hand = __instance.Controller;
@@ -149,7 +133,7 @@ public static class GrabPointPatch
 {
     private static bool _logged;
 
-    public static bool Prepare() => TargetMethod() != null;
+    public static bool Prepare() => !GrabGuard.Standalone && TargetMethod() != null;
 
     public static MethodBase TargetMethod() => GrabStream.Resolve(typeof(Interactor), "SyncStartGrabPoint",
         [typeof(IPlayer), typeof(NetStream), typeof(GrabPointArguments)], "Interactor.SyncStartGrabPoint(player, stream, args)", ref _logged);
@@ -158,18 +142,10 @@ public static class GrabPointPatch
     public static bool Prefix(Interactor __instance, IPlayer player, NetStream stream, GrabPointArguments args)
     {
         if (stream == null || stream.IsWriting || !GrabGuard.Watching) return true;
-        var start = stream.BitIndex;
         var peek = args;
-        try
-        {
-            peek.Serialize(stream);
-        }
-        catch (Exception e)
-        {
-            return GrabStream.Unreadable(stream, start, e);
-        }
+        if (!GrabStream.Read(stream, r => peek.Serialize(r))) return true;
         NetworkEntity entity = null;
-        return GrabStream.Decide(stream, start,
+        return GrabStream.Decide(
             () =>
             {
                 var hand = __instance.Controller;
@@ -188,7 +164,7 @@ public static class DockRequestPatch
     private static readonly FieldInfo RequestField = AccessTools.Field(typeof(PickupDocker), "requestDock");
     private static bool _logged;
 
-    public static bool Prepare() => TargetMethod() != null && PickupField != null && RequestField != null;
+    public static bool Prepare() => !GrabGuard.Standalone && TargetMethod() != null && PickupField != null && RequestField != null;
 
     public static MethodBase TargetMethod() => GrabStream.Resolve(typeof(PickupDocker), "RequestDock",
         [typeof(IPlayer), typeof(NetStream), typeof(RequestDockArguments)], "PickupDocker.RequestDock(player, stream, request)", ref _logged);
@@ -197,30 +173,15 @@ public static class DockRequestPatch
     public static bool Prefix(PickupDocker __instance, IPlayer player, NetStream stream, RequestDockArguments request)
     {
         if (stream == null || stream.IsWriting || player == null || !GrabGuard.Watching) return true;
-        var start = stream.BitIndex;
         var peek = request;
-        try
-        {
-            peek.Serialize(player, stream);
-        }
-        catch (Exception e)
-        {
-            return GrabStream.Unreadable(stream, start, e);
-        }
+        if (!GrabStream.Read(stream, r => peek.Serialize(player, r))) return true;
         var pickup = PickupField.GetValue(__instance) as Pickup;
-        return GrabStream.Decide(stream, start,
+        return GrabStream.Decide(
             () =>
             {
                 var scene = pickup?.Entity?.Scene;
-                var hand = scene?.GetEntity(peek.Interactor)?.GetComponent<Controller>();
-                if (hand == null || !GrabRefusal.IsSender(hand, player)) return false;
-                var action = peek.IsDocking ? "docking" : "undocking";
-                if (peek.IsDocking)
-                {
-                    var into = scene.GetEntity(peek.Dock);
-                    if (into != null) action += " into " + GrabGuard.Name(into);
-                }
-                return GrabGuard.Check(player, hand, pickup, action);
+                if (scene == null) return false;
+                return GrabGuard.CheckDockRequest(player, pickup, scene.GetEntity(peek.Interactor), peek.IsDocking ? scene.GetEntity(peek.Dock) : null, peek.IsDocking);
             },
             () => Restore(__instance, player));
     }
@@ -232,5 +193,64 @@ public static class DockRequestPatch
         var dock = docker.CurrentDock;
         var docked = dock != null;
         sync.SendToPlayer(player, new RequestDockArguments(null, dock, docked, docked && ReferenceEquals(dock.DockedPickup, pickup), false));
+    }
+}
+
+[HarmonyPatch]
+public static class PouchRequestPatch
+{
+    private static readonly FieldInfo DockField = AccessTools.Field(typeof(PickupContainer), "dock");
+    private static bool _logged;
+
+    public static bool Prepare() => !GrabGuard.Standalone && TargetMethod() != null;
+
+    public static MethodBase TargetMethod() => GrabStream.Resolve(typeof(PickupContainer), "NetworkSpawnPouch",
+        [typeof(IPlayer), typeof(NetStream), typeof(RequestPouchArguments)], "PickupContainer.NetworkSpawnPouch(player, stream, args)", ref _logged);
+
+    [HarmonyPrefix]
+    public static bool Prefix(PickupContainer __instance, IPlayer player, NetStream stream, RequestPouchArguments args)
+    {
+        if (stream == null || stream.IsWriting || player == null || !GrabGuard.Watching) return true;
+        var peek = args;
+        if (!GrabStream.Read(stream, r => peek.Serialize(player, r))) return true;
+        return GrabStream.Decide(
+            () =>
+            {
+                var hand = __instance.Entity?.Scene?.GetEntity(peek.InteractorId)?.GetComponent<Controller>();
+                return GrabRefusal.IsSender(hand, player) && GrabGuard.Check(player, hand, __instance, "taking a stack from");
+            },
+            () => (DockField?.GetValue(__instance) as PickupDock)?.SyncQuantity?.SendToPlayer(player));
+    }
+}
+
+[HarmonyPatch]
+public static class MoveQuantityPatch
+{
+    private static readonly FieldInfo DockField = AccessTools.Field(typeof(PickupContainer), "dock");
+    private static bool _logged;
+
+    public static bool Prepare() => !GrabGuard.Standalone && TargetMethod() != null;
+
+    public static MethodBase TargetMethod() => GrabStream.Resolve(typeof(PickupContainer), "MoveQuantity",
+        [typeof(IPlayer), typeof(NetStream), typeof(uint)], "PickupContainer.MoveQuantity(player, stream, dock)", ref _logged);
+
+    [HarmonyPrefix]
+    public static bool Prefix(PickupContainer __instance, IPlayer player, NetStream stream, uint otherDockIdentifier)
+    {
+        if (stream == null || stream.IsWriting || player == null || !GrabGuard.Watching) return true;
+        var id = otherDockIdentifier;
+        if (!GrabStream.Read(stream, r => r.SerializeEntityIdentifier(ref id))) return true;
+        PickupDock into = null;
+        return GrabStream.Decide(
+            () =>
+            {
+                into = __instance.Entity?.Scene?.GetEntity(id)?.GetComponent<PickupDock>();
+                return GrabGuard.CheckMove(player, __instance, into);
+            },
+            () =>
+            {
+                into?.SyncQuantity?.SendToPlayer(player);
+                (DockField?.GetValue(__instance) as PickupDock)?.SyncQuantity?.SendToPlayer(player);
+            });
     }
 }

@@ -32,6 +32,7 @@ public class TavernAntiPlugin : MelonPlugin
         try
         {
             DevGuard.Detect();
+            GrabGuard.Detect();
             new HarmonyLib.Harmony("com.moddingtavern.tavernanti").PatchAll(Assembly.GetExecutingAssembly());
             TavernAntiLogger.Msg("Harmony patches applied");
 

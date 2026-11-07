@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Reflection;
 using Alta.Character;
 using Alta.Global;
@@ -8,6 +9,8 @@ using Alta.Inventory;
 using Alta.Networking;
 using Alta.Networking.Scripts.Player;
 using HarmonyLib;
+using MelonLoader;
+using MelonLoader.Utils;
 using TavernAnti.Config;
 using TavernLib.Services;
 using UnityEngine;
@@ -18,24 +21,53 @@ internal static class GrabGuard
 {
     private const float OriginSlack = 1f;
     private const int MaxWalk = 32;
+    private const string StandaloneName = "GrabGuard";
     private static readonly FieldInfo AllowanceField = AccessTools.Field(typeof(Interactable), "multipleAllowance");
-    private static bool _broken;
+    private static readonly FieldInfo ContainerDockField = AccessTools.Field(typeof(PickupContainer), "dock");
     private static bool _reachLogged;
+
+    internal static bool Standalone { get; private set; }
+
+    internal static void Detect()
+    {
+        var where = FindStandalone();
+        if (where == null) return;
+        Standalone = true;
+        TavernAntiLogger.Warn($"Standalone GrabGuard found ({where}): TavernAnti's built-in GrabGuard is off so nothing is patched twice. Remove GrabGuard.dll to use the built-in one.");
+    }
+
+    private static string FindStandalone()
+    {
+        try
+        {
+            if (MelonBase.RegisteredMelons.Any(m => string.Equals(m.Info?.Name, StandaloneName, StringComparison.OrdinalIgnoreCase)))
+                return "loaded mod";
+        }
+        catch (Exception e)
+        {
+            TavernAntiLogger.Warn($"Could not list loaded mods while looking for GrabGuard: {e.Message}");
+        }
+
+        foreach (var dir in new[] { MelonEnvironment.ModsDirectory, MelonEnvironment.PluginsDirectory })
+        {
+            try
+            {
+                var path = System.IO.Path.Combine(dir, StandaloneName + ".dll");
+                if (System.IO.File.Exists(path)) return path;
+            }
+            catch (Exception) { }
+        }
+        return null;
+    }
 
     internal static bool Watching
     {
         get
         {
-            if (_broken || !NetworkSceneManager.IsServer || NetworkSceneManager.IsLocalTest) return false;
+            if (Standalone || !NetworkSceneManager.IsServer || NetworkSceneManager.IsLocalTest) return false;
             var cfg = TavernServices.GetService<AntiCheatConfigFile>()?.LastRead;
             return cfg != null && cfg.GrabChecks;
         }
-    }
-
-    internal static void Stop(Exception e)
-    {
-        _broken = true;
-        TavernAntiLogger.Error($"GrabGuard stopped checking grabs and docks until the server restarts: a message could not be rewound. {e}");
     }
 
     internal static bool Check(IPlayer player, Controller hand, Component target, string action)
@@ -78,6 +110,71 @@ internal static class GrabGuard
                 return tracker.Report(player, ViolationType.InteractRange, $"{action} {what} {reach:F1} m from the hand (max {max:F1}{(exact ? "" : ", measured to the item origin")})");
         }
         return false;
+    }
+
+    internal static bool CheckDockRequest(IPlayer player, Pickup pickup, NetworkEntity named, NetworkEntity into, bool docking)
+    {
+        if (player?.ConnectionToRemotePlayer == null || pickup == null || named == null) return false;
+        if (Staff.IsStaff(player)) return false;
+
+        var cfg = TavernServices.GetService<AntiCheatConfigFile>()?.LastRead;
+        var tracker = TavernServices.GetService<ViolationTracker>();
+        if (cfg == null || tracker == null) return false;
+
+        var what = Name(pickup);
+        var verb = docking ? "docking" : "undocking";
+        var hand = named.GetComponent<Controller>();
+        if (hand == null || hand.Interactor == null)
+            return tracker.Report(player, ViolationType.GrabForged, $"{verb} {what} naming {Name(named)} as the hand");
+
+        var pc = hand.PlayerController;
+        if (pc == null || !ReferenceEquals(pc.NetworkPlayer, player)) return false;
+        if (!pc.IsAlive)
+            return tracker.Report(player, ViolationType.GrabWhileDead, $"{verb} {what} while dead");
+
+        var action = verb;
+        if (docking && into != null) action += " into " + Name(into);
+        if (Check(player, hand, pickup, action)) return true;
+        return docking && into != null && DockTooFar(player, hand, into.GetComponent<PickupDock>(), what, cfg, tracker);
+    }
+
+    internal static bool CheckMove(IPlayer player, PickupContainer source, PickupDock into)
+    {
+        if (player?.ConnectionToRemotePlayer == null || source == null) return false;
+        if (Staff.IsStaff(player)) return false;
+
+        var cfg = TavernServices.GetService<AntiCheatConfigFile>()?.LastRead;
+        var tracker = TavernServices.GetService<ViolationTracker>();
+        if (cfg == null || tracker == null) return false;
+
+        var what = Name(source);
+        var pc = player.PlayerController;
+        if (pc == null)
+            return tracker.Report(player, ViolationType.GrabForged, $"moving a stack out of {what} with no body");
+        if (!pc.IsAlive)
+            return tracker.Report(player, ViolationType.GrabWhileDead, $"moving a stack out of {what} while dead");
+
+        var hand = NearestHand(pc, source.transform.position);
+        if (hand == null) return false;
+        if (Check(player, hand, source, "moving a stack out of")) return true;
+        return DockTooFar(player, hand, into, what, cfg, tracker);
+    }
+
+    private static bool DockTooFar(IPlayer player, Controller hand, PickupDock into, string what, AntiCheatConfig cfg, ViolationTracker tracker)
+    {
+        if (into == null) return false;
+        var reach = Vector3.Distance(hand.transform.position, into.transform.position);
+        if (reach <= cfg.GrabMaxHandToDock) return false;
+        return tracker.Report(player, ViolationType.InteractRange, $"putting {what} into {Name(into)}, {reach:F1} m from the hand (max {cfg.GrabMaxHandToDock:F1})");
+    }
+
+    private static Controller NearestHand(PlayerController pc, Vector3 at)
+    {
+        var left = pc.LeftController;
+        var right = pc.RightController;
+        if (left == null) return right;
+        if (right == null) return left;
+        return Vector3.Distance(left.transform.position, at) <= Vector3.Distance(right.transform.position, at) ? left : right;
     }
 
     private static Player OtherOwner(IPlayer me, Component start, out string how)
@@ -124,6 +221,8 @@ internal static class GrabGuard
             else if (c is PickupContainer container)
             {
                 todo.Push(container.Pickup);
+                todo.Push(ContainerDockField?.GetValue(container) as PickupDock);
+                todo.Push(container.GetComponentInParent<Pickup>());
             }
             else
             {
@@ -165,7 +264,7 @@ internal static class GrabGuard
         distance = 0f;
         exact = false;
         var pickup = target as Pickup ?? (target as PickupDock)?.DockedPickup ?? (target as PickupContainer)?.Pickup;
-        Component anchor = pickup != null ? pickup : target as PickupDock;
+        Component anchor = pickup != null ? pickup : target is PickupDock || target is PickupContainer ? target : null;
         if (anchor == null) return false;
 
         var best = float.MaxValue;

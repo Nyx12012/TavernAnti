@@ -22,4 +22,6 @@ public enum ViolationType
     KeyMismatch,
     Hovering,
     Underground,
+    GrabForged,
+    GrabWhileDead,
 }

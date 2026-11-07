@@ -36,6 +36,7 @@ public class AntiCheatConfig
     [JsonProperty("grab_max_hand_to_head")] public float GrabMaxHandToHead { get; set; } = 1.5f;
     [JsonProperty("grab_max_head_to_body")] public float GrabMaxHeadToBody { get; set; } = 4f;
     [JsonProperty("grab_after_teleport_seconds")] public float GrabAfterTeleportSeconds { get; set; } = 3f;
+    [JsonProperty("grab_max_hand_to_dock")] public float GrabMaxHandToDock { get; set; } = 4f;
 
     [JsonProperty("dev_guard")] public bool DevGuard { get; set; } = true;
     [JsonProperty("join_guard")] public bool JoinGuard { get; set; } = true;
@@ -65,6 +66,8 @@ public class AntiCheatConfig
         [ViolationType.KeyMismatch] = 10,
         [ViolationType.Hovering] = 4,
         [ViolationType.Underground] = 4,
+        [ViolationType.GrabForged] = 10,
+        [ViolationType.GrabWhileDead] = 1,
     };
 
     [JsonProperty("violation_window_seconds")] public int ViolationWindowSeconds { get; set; } = 300;

@@ -30,7 +30,7 @@ public static class TavernAntiCommands
         var cfg = file.LastRead;
         var sb = new StringBuilder();
         sb.AppendLine($"enforcement: {Level(cfg)} (alert at {cfg.AlertThreshold}, kick at {cfg.KickThreshold}, ban at {cfg.BanThreshold}, window {cfg.ViolationWindowSeconds} s)");
-        sb.AppendLine($"checks: movement {On(cfg.MovementChecks)}{Movement(cfg)}, interact {On(cfg.InteractChecks)}, grab {On(cfg.GrabChecks)}, dev_guard {(DevGuard.Standalone ? "standalone DevGuard" : On(cfg.DevGuard))}, join_guard {On(cfg.JoinGuard)}, key_guard {On(cfg.KeyGuard)}");
+        sb.AppendLine($"checks: movement {On(cfg.MovementChecks)}{Movement(cfg)}, interact {On(cfg.InteractChecks)}, grab {(GrabGuard.Standalone ? "standalone GrabGuard" : On(cfg.GrabChecks))}, dev_guard {(DevGuard.Standalone ? "standalone DevGuard" : On(cfg.DevGuard))}, join_guard {On(cfg.JoinGuard)}, key_guard {On(cfg.KeyGuard)}");
         sb.AppendLine($"webhook: {WebhookState(cfg)}");
         if (!Staff.Ready()) sb.AppendLine("staff: TavernLib's Roles API is missing, nobody is treated as staff");
         else if (KeyGuard.Gating) sb.AppendLine("staff: rights wait for each staff login's key proof");
@@ -153,7 +153,7 @@ public static class TavernAntiCommands
         var cfg = file.LastRead;
         var keys = KeyGuard.ReloadBindings();
         TavernAntiLogger.Msg($"Console reload: enforcement={Level(cfg)}, dev_guard={On(cfg.DevGuard)}, join_guard={On(cfg.JoinGuard)}, key_guard={On(cfg.KeyGuard)}; KeyGuard: {keys}");
-        return $"Reloaded. enforcement {Level(cfg)}; movement {On(cfg.MovementChecks)}{Movement(cfg)}, interact {On(cfg.InteractChecks)}, grab {On(cfg.GrabChecks)}, dev_guard {On(cfg.DevGuard)}, join_guard {On(cfg.JoinGuard)}, key_guard {On(cfg.KeyGuard)}; webhook {WebhookState(cfg)}; KeyGuard: {keys}{ThresholdNote(cfg)}";
+        return $"Reloaded. enforcement {Level(cfg)}; movement {On(cfg.MovementChecks)}{Movement(cfg)}, interact {On(cfg.InteractChecks)}, grab {(GrabGuard.Standalone ? "standalone GrabGuard" : On(cfg.GrabChecks))}, dev_guard {On(cfg.DevGuard)}, join_guard {On(cfg.JoinGuard)}, key_guard {On(cfg.KeyGuard)}; webhook {WebhookState(cfg)}; KeyGuard: {keys}{ThresholdNote(cfg)}";
     }
 
     [Command("webhook", "Show the Discord webhook state")]
